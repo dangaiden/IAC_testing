@@ -1,0 +1,13 @@
+---
+# main.yml
+- hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Echo nothing
+      include: inner.yml
+      loop:
+      - apple
+      - banana
+      - breva
+      loop_control:
+        loop_var: outer_item

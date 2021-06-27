@@ -1,0 +1,19 @@
+# test.yml
+- name: Loop over foo
+  include_tasks: inner.yaml
+  with_items: '{{ foo }}'
+  loop_control:
+     loop_var: outer_item
+  vars:
+   foo:
+    - [1, 2, 3]
+    - [a, b, c]
+
+# inner.yml
+- name: Print outer and inner items
+  loop:
+    - a
+    - b
+    - c
+  ansible.builtin.debug:
+  msg: "outer item={{ outer_item }} inner item={{ item }}"
