@@ -1,0 +1,153 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Bootstrap EC2 instance for Falco AMI creation with automated EKS access'
+
+Parameters:
+  EKSClusterName:
+    Type: String
+    Description: 'Name of the EKS cluster to test Helm/kubectl access'
+    Default: 'your-eks-cluster-name'
+
+Resources:
+  # IAM Role for EC2 instance
+  FalcoSecHubEC2role:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: 'falco-sechub-ec2-role'
+      Description: 'IAM role for EC2 instance to access EKS clusters'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore'
+      Tags:
+        - Key: Name
+          Value: 'falco-sechub-ec2-role'
+
+  # IAM Policy for EKS access
+  FalcoBootstrapEKSAccessPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: 'falco-bootstrap-eks-access'
+      Roles:
+        - !Ref FalcoSecHubEC2role
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - 'eks:DescribeCluster'
+              - 'eks:ListClusters'
+              - 'eks:AccessKubernetesApi'
+            Resource: '*'
+          - Effect: Allow
+            Action:
+              - 'ec2:DescribeInstances'
+              - 'ec2:DescribeTags'
+            Resource: '*'
+
+  # Instance Profile
+  FalcoSechubBootstrapInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: 'falco-bootstrap-instance-profile'
+      Roles:
+        - !Ref FalcoSecHubEC2role
+
+  # EKS Access Entry - Grants the IAM role access to the cluster
+  FalcoEKSAccessEntry:
+    Type: AWS::EKS::AccessEntry
+    Properties:
+      ClusterName: !Ref EKSClusterName
+      PrincipalArn: !GetAtt FalcoSecHubEC2role.Arn
+      Type: STANDARD
+      AccessPolicies:
+        - PolicyArn: 'arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy'
+          AccessScope:
+            Type: cluster
+
+
+
+  # Security Group
+  FalcoBootstrapEC2SG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: 'falco-bootstrap-ec2-sg'
+      GroupDescription: 'SG for Falco bootstrap EC2 - SSH access only'
+      VpcId: vpc-086173b9355df27bf
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: 'falco-bootstrap-ec2-sg'
+
+  # EC2 Instance
+  FalcoSechubBootstrapEC2Instance:
+    Type: AWS::EC2::Instance
+    DependsOn: 
+      - FalcoEKSAccessEntry
+    Properties:
+      ImageId: ami-03c4f11b50838ab5d
+      InstanceType: t3.small
+      KeyName: dbelmonte-Oct-2025-falco-sechub
+      IamInstanceProfile: !Ref FalcoSechubBootstrapInstanceProfile
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            Encrypted: true
+            DeleteOnTermination: true
+            Iops: 3000
+            VolumeSize: 20
+            VolumeType: gp3
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeviceIndex: 0
+          GroupSet:
+            - !Ref FalcoBootstrapEC2SG
+          SubnetId: subnet-0684c9dd0cf038e9a
+      CreditSpecification:
+        CPUCredits: unlimited
+      Tags:
+        - Key: Name
+          Value: falco-to-sechub-bootstrap
+        - Key: EKSClusterAccess
+          Value: !Ref EKSClusterName
+      MetadataOptions:
+        HttpEndpoint: enabled
+        HttpPutResponseHopLimit: 2
+        HttpTokens: required
+      PrivateDnsNameOptions:
+        HostnameType: ip-name
+        EnableResourceNameDnsARecord: false
+        EnableResourceNameDnsAAAARecord: false
+
+Outputs:
+  EC2InstanceId:
+    Description: 'EC2 Instance ID'
+    Value: !Ref FalcoSechubBootstrapEC2Instance
+
+  EC2PublicIP:
+    Description: 'Public IP address'
+    Value: !GetAtt FalcoSechubBootstrapEC2Instance.PublicIp
+
+  EC2RoleArn:
+    Description: 'IAM Role ARN (automatically granted EKS access)'
+    Value: !GetAtt FalcoSecHubEC2role.Arn
+
+  EKSCluster:
+    Description: 'EKS Cluster with access granted'
+    Value: !Ref EKSClusterName
+
+  SSHCommand:
+    Description: 'SSH command to connect'
+    Value: !Sub 'ssh -i dbelmonte-Oct-2025-falco-sechub.pem ec2-user@${FalcoSechubBootstrapEC2Instance.PublicIp}'
+
+  NextSteps:
+    Description: 'What to do next'
+    Value: 'Note: This is a custom Note.'
